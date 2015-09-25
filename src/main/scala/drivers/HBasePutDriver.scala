@@ -11,6 +11,8 @@ import org.apache.hadoop.hbase.HBaseConfiguration
 class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends Driver(operation, stats, config) {
 
   var table: Table = _
+  val tableName= "ns:tbl"
+  val colFamilies = List("fam")
 
   override val getOperation = () => {
     operation match {
@@ -21,7 +23,19 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
   override def setup(): Boolean = {
     val conf = HBaseConfiguration.create
     val conn = ConnectionFactory.createConnection(conf)
-    this.table = conn.getTable(TableName.valueOf("ns:tbl"))
+    val admin = conn.getAdmin
+    val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
+
+    try{
+      colFamilies.foreach { fam=> tableDescriptor.addFamily(new HColumnDescriptor(fam)) }
+      admin.createTable(tableDescriptor)
+      log.info("table: ${tableName} created")
+    } catch {
+       case e: TableExistsException => {
+         log.info(s"table: ${tableName} already exists")
+       }
+     }
+    this.table = conn.getTable(TableName.valueOf(tableName))
     true
   }
 
