@@ -15,7 +15,7 @@ AKka-nbench focuses on two metrics of performance:
  quantiles per-operation
 
 Generated Graph as below.
-![sample_graph](https://10.200.0.161/uploads/kanbe/kanbench/334ff69f71/sqs_putget_retention_c300_0.5kb_cpu85__4_6_20min.png)
+![sample_graph](https://raw.githubusercontent.com/wiki/kotakanbe/akka-nbench/images/sqs_put_c100_0.5kb_cpu35_.png)
 
 
 
@@ -25,7 +25,7 @@ Installation
 Docker
 ------------
 
-See https://10.200.0.161/docker/akka-nbench-docker/tree/master
+See TODO
 
 
 Manual Installation
@@ -51,7 +51,7 @@ Quick Start
 -------------
 
 ```shell
-$ git clone http://10.200.0.161/kanbe/akka-nbench.git
+$ git clone https://github.com/kotakanbe/akka-nbench.git
 $ cd akka-nbench
 $ activator -mem 512 "run-main bench.Bench sleep"
 $ activator -mem 512 "run-main bench.Summarizer" 
@@ -62,7 +62,7 @@ $ open tests/current/summary.png
 Customizing your Benchmark Options
 -------------
 
-https://10.200.0.161/kanbe/kanbench/blob/master/src/main/resources/application.conf
+https://github.com/kotakanbe/akka-nbench/blob/master/src/main/resources/application.conf
 ```
 sleep {                         # Scenario_name
   concurrent = 100              # Sec
