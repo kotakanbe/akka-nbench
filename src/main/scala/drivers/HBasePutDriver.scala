@@ -3,24 +3,10 @@ package bench.drivers
 import akka.actor._
 import com.typesafe.config._
 
-/*  import org.apache.hadoop.hbase.client.{HBaseAdmin,HTable,Put,Get} */
- /*  import org.apache.hadoop.hbase.{HBaseConfiguration, HTableDescriptor, TableName} */
-/*  import org.apache.hadoop.hbase.util.Bytes */
-
 import org.apache.hadoop.hbase._
 import org.apache.hadoop.hbase.client._
 import org.apache.hadoop.hbase.util._
-import org.apache.hadoop.hbase.client.{HBaseAdmin,Scan,Result}
 import org.apache.hadoop.hbase.HBaseConfiguration
-
-/*  import org.apache.hadoop.hbase.mapreduce.{TableMapper,TableMapReduceUtil} */
-/*  import org.apache.hadoop.hbase.HBaseConfiguration */
-/*  import org.apache.hadoop.hbase.io.ImmutableBytesWritable */
-
-/*  import org.apache.hadoop.conf.Configuration */
-/*  import org.apache.hadoop.mapreduce.Job */
-/*  import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat */
-/*  import org.apache.hadoop.io.{Text,NullWritable} */
 
 class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends Driver(operation, stats, config) {
 

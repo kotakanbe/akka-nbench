@@ -156,7 +156,7 @@ class AmazonSQSPutGetRetentionDriver(operation: String, stats: ActorRef, config:
      }
   }
 
-  override def teardownExecutedOnOneActor(): Boolean = {
+  override def teardownOnOnlyOneActor(): Boolean = {
     log.info("Deleting the queue.\n");
     sqs.deleteQueue(new DeleteQueueRequest(this.queueUrl));
     true

@@ -32,8 +32,8 @@ class Driver(operation: String, stats: ActorRef, config: Config) extends Actor w
     true
   }
 
-  def teardownExecutedOnOneActor(): Boolean = {
-    log.debug("teardownExecutedOnOneActor")
+  def teardownOnOnlyOneActor(): Boolean = {
+    log.debug("teardownOnOnlyOneActor")
     true
   }
 
@@ -58,8 +58,8 @@ class Driver(operation: String, stats: ActorRef, config: Config) extends Actor w
       teardown()
       sender ! OK()
 
-    case TearDownExecutedOnOneActor() =>
-      teardownExecutedOnOneActor()
+    case TearDownOnOnlyOneActor() =>
+      teardownOnOnlyOneActor()
       sender ! OK()
 
     case m =>
