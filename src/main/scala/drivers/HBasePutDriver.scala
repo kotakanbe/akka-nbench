@@ -10,6 +10,7 @@ import org.apache.hadoop.hbase.HBaseConfiguration
 
 class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends Driver(operation, stats, config) {
 
+  var conn: Connection = _
   var table: Table = _
   val tableName= "ns:tbl"
   val colFamilies = List("fam")
@@ -22,8 +23,8 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
 
   override def setup(): Boolean = {
     val conf = HBaseConfiguration.create
-    val conn = ConnectionFactory.createConnection(conf)
-    val admin = conn.getAdmin
+    this.conn = ConnectionFactory.createConnection(conf)
+    val admin = this.conn.getAdmin
     val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
 
     try{
@@ -35,12 +36,13 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
          log.info(s"table: ${tableName} already exists")
        }
      }
-    this.table = conn.getTable(TableName.valueOf(tableName))
+    this.table = this.conn.getTable(TableName.valueOf(tableName))
     true
   }
 
   override def teardown(): Boolean = {
     this.table.close()
+    this.conn.close()
     true
   }
 
