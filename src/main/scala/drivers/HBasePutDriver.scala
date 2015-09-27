@@ -12,7 +12,9 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
 
   var conn: Connection = _
   var table: Table = _
-  val tableName= "ns:tbl"
+
+  val nsName = "ns"
+  val tableName= s"${nsName}:tbl"
   val colFamilies = List("fam")
 
   override val getOperation = () => {
@@ -25,12 +27,20 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
     val conf = HBaseConfiguration.create
     this.conn = ConnectionFactory.createConnection(conf)
     val admin = this.conn.getAdmin
-    val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
 
+    try{
+      admin.createNamespace(NamespaceDescriptor.create(nsName).build());
+    } catch {
+       case e: NamespaceExistException => {
+         log.info(s"namespace: ${nsName} already exists")
+       }
+     }
+
+    val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
     try{
       colFamilies.foreach { fam=> tableDescriptor.addFamily(new HColumnDescriptor(fam)) }
       admin.createTable(tableDescriptor)
-      log.info("table: ${tableName} created")
+      log.info(s"table: ${tableName} created")
     } catch {
        case e: TableExistsException => {
          log.info(s"table: ${tableName} already exists")
