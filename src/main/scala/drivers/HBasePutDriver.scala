@@ -23,6 +23,7 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
     }
   }
 
+  // https://github.com/apache/hbase/blob/master/hbase-server/src/test/java/org/apache/hadoop/hbase/TestNamespace.java
   override def setup(): Boolean = {
     val conf = HBaseConfiguration.create
     this.conn = ConnectionFactory.createConnection(conf)
