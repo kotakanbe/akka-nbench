@@ -91,24 +91,18 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
       hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[Object],
       roomId.asInstanceOf[Object],
       (Long.MaxValue - postAt).asInstanceOf[Object],
-      //  messageId.asInstanceOf[String]
+      messageId.asInstanceOf[String]
     )
     var messageRowSchema = 
       new StructBuilder().
         add(new RawLong()).
         add(new RawLong()).
         add(new RawLong()).
-        //  add(RawString.ASCENDING).
-        //  add(OrderedString.ASCENDING).
+        add(RawString.ASCENDING).
         toStruct()
 
-    //TODO
-    log.info("" + messageRowSchema.encodedLength(values))
-
-    var positionedByteRange = new SimplePositionedByteRange(messageRowSchema.encodedLength(values))
-    //  positionedByteRange.setPosition(0)
-    //  var positionedByteRange = 
-    //    new SimplePositionedByteRange(1000)
+    var positionedByteRange = 
+      new SimplePositionedMutableByteRange(messageRowSchema.encodedLength(values))
     messageRowSchema.encode(positionedByteRange, values)
     positionedByteRange.getBytes()
   }
