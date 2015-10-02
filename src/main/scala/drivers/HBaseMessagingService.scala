@@ -92,10 +92,10 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
     def sendMessage(roomId: Long, userId: Long, body: String) = {
 
       def createMessageRow(roomId: Long, postAt: Long, messageId: String): Array[Byte] = {
-        var values = Array[Object](
-          hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[Object],
-          roomId.asInstanceOf[Object],
-          (Long.MaxValue - postAt).asInstanceOf[Object],
+        var values = Array[AnyRef](
+          hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[AnyRef],
+          roomId.asInstanceOf[AnyRef],
+          (Long.MaxValue - postAt).asInstanceOf[AnyRef],
           messageId.asInstanceOf[String]
         )
 
@@ -172,10 +172,10 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
     }
 
     def createMessageScanRow(roomId: Long): Array[Byte] = {
-      val values = Array[Object] (
-        //  hash.hash(Bytes.toBytes(roomId)).asInstanceOf[Object],
-      hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[Object],
-      roomId.asInstanceOf[Object]
+      val values = Array[AnyRef] (
+        //  hash.hash(Bytes.toBytes(roomId)).asInstanceOf[AnyRef],
+      hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[AnyRef],
+      roomId.asInstanceOf[AnyRef]
     )
       val positionedByteRange = 
         new SimplePositionedByteRange(messageRowSchema.encodedLength(values))
