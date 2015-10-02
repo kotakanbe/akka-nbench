@@ -39,7 +39,7 @@ class HBasePutDriver(operation: String, stats: ActorRef, config: Config) extends
 
     val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
     try{
-      colFamilies.foreach { fam=> tableDescriptor.addFamily(new HColumnDescriptor(fam)) }
+      colFamilies.foreach { fam => tableDescriptor.addFamily(new HColumnDescriptor(fam)) }
       admin.createTable(tableDescriptor)
       log.info(s"table: ${tableName} created")
     } catch {
