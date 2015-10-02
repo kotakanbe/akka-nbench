@@ -1,3 +1,6 @@
+// HBase徹底入門 Chapter7 メッセージングサービスのScala版 HBase1.x系で実装
+// http://amzn.to/1Gn5Azr
+// https://github.com/hbasebook101/hbasebook101/tree/master/ch07/messaging-service/src/main/java/messaging 
 package bench.drivers
 
 import akka.actor._
