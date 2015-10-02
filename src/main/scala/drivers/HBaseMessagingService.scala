@@ -19,12 +19,15 @@ import org.apache.hadoop.hbase.filter.FilterList.Operator
 import org.apache.hadoop.hbase.filter.SingleColumnValueFilter
 import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp
 
+import scala.collection.JavaConversions._
+
 class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Config) extends Driver(operation, stats, config) {
 
   override val getOperation = () => {
     operation match {
-      case "send" => send _
-      case "initial" => initial _
+      case "sender" => send _
+      //  case "initial" => initial _
+      case "reader" => attendAndRead _
     }
   }
 
@@ -36,10 +39,12 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
 
   var hash = Hash.getInstance(Hash.MURMUR_HASH3)
 
+  var latestMessage: Message = null
+
   var messageRowSchema = 
     new StructBuilder().
-    add(new RawLong()).
-    add(new RawLong()).
+    add(new RawLong()). // messageID
+    add(new RawLong()). //
     add(new RawLong()).
     add(RawString.ASCENDING).
     toStruct()
@@ -72,11 +77,12 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
     }
 
     def send(): (Boolean, Long, Long) = {
+      Thread.sleep(100)
       val start = System.currentTimeMillis
       try {
-        Thread.sleep(100)
         val userId = scala.util.Random.nextInt(10)
         sendMessage(1, userId, s"Hello I am ${userId}.")
+
         val endAt = System.currentTimeMillis
         val elapsedMillis= endAt - start
         (true, endAt, elapsedMillis)
@@ -93,40 +99,26 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
     }
 
     def sendMessage(roomId: Long, userId: Long, body: String) = {
-
-      def createMessageRow(roomId: Long, postAt: Long, messageId: String): Array[Byte] = {
-        var values = Array[AnyRef](
-          hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[AnyRef],
-          roomId.asInstanceOf[AnyRef],
-          (Long.MaxValue - postAt).asInstanceOf[AnyRef],
-          messageId.asInstanceOf[String]
-        )
-
-        var positionedByteRange = 
-          new SimplePositionedMutableByteRange(messageRowSchema.encodedLength(values))
-        messageRowSchema.encode(positionedByteRange, values)
-        positionedByteRange.getBytes()
-      }
-
-      val postAt = System.currentTimeMillis()
+      var postAt = System.currentTimeMillis()
+      log.info("sendMessage:\t"+postAt)
       val messageId = java.util.UUID.randomUUID().toString()
       val row = createMessageRow(roomId, postAt, messageId)
-
       val put = new Put(row)
       put.addColumn(Bytes.toBytes("m"), Bytes.toBytes("messageId"), Bytes.toBytes(messageId))
       put.addColumn(Bytes.toBytes("m"), Bytes.toBytes("userId"), Bytes.toBytes(userId))
       put.addColumn(Bytes.toBytes("m"), Bytes.toBytes("body"), Bytes.toBytes(body))
-
       this.table.put(put)
     }
 
     def initial(): (Boolean, Long, Long) = {
+      Thread.sleep(500)
       val start = System.currentTimeMillis
       try {
-        Thread.sleep(500)
+
         val msgs = getInitialMessages(1, List(0))
         log.info(s"num msgs ${msgs.length}")
-        //  msgs.foreach {msg => log.info(msg.body) }
+        //  msgs.foreach {msg => log.info(""+msg) }
+
         val endAt = System.currentTimeMillis
         val elapsedMillis= endAt - start
         (true, endAt, elapsedMillis)
@@ -145,7 +137,6 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
     def getInitialMessages(roomId: Long, blockUsers: List[Long]): List[Message] = {
       val startRow = createMessageScanRow(roomId)
       val stopRow = incrementBytes(createMessageScanRow(roomId))
-
       val scan = new Scan(startRow, stopRow)
 
       val filterList = new FilterList(Operator.MUST_PASS_ALL);
@@ -157,13 +148,11 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
           filterList.addFilter(userFilter)
         }
       }
-
       scan.setFilter(filterList)
-      val messages = scala.collection.mutable.ListBuffer.empty[Message]
       val scanner: ResultScanner = this.table.getScanner(scan)
-      var count = 0
 
-      import scala.collection.JavaConversions._
+      val messages = scala.collection.mutable.ListBuffer.empty[Message]
+      var count = 0
       scanner.iterator.foreach { result =>
         messages.append(convertToMessage(result))
         count += 1
@@ -174,6 +163,90 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
       return messages.toList
     }
 
+    def attendAndRead(): (Boolean, Long, Long) = {
+      val start = System.currentTimeMillis
+
+      try {
+        Option(this.latestMessage) match {
+          case None => 
+            val msgs = getInitialMessages(1, List(0))
+            if( !msgs.isEmpty) this.latestMessage = msgs.head
+            log.info("attended.") 
+            //  log.info(""+msgs.head)
+            //  msgs.foreach {m => log.info(""+m)}
+          case _ => ;
+        }
+
+        Thread.sleep(2000)
+        val newMsgs  = getNewMessages(1, this.latestMessage, List(0))
+        //  log.info(s"received num: ${newMsgs.length}")
+        newMsgs.foreach {m => log.info(s"received: ${m}")}
+        if( !newMsgs.isEmpty) this.latestMessage = newMsgs.head
+
+        val endAt = System.currentTimeMillis
+        val elapsedMillis= endAt - start
+        (true, endAt, elapsedMillis)
+      } catch {
+        case e: Throwable => {
+          log.error("" + e)
+          log.error("" + e.getMessage())
+          e.printStackTrace
+          val endAt = System.currentTimeMillis
+          val elapsedMillis= endAt - start
+          (false, endAt, elapsedMillis)
+        }
+      }
+    }
+
+    def getNewMessages(roomId: Long, stopMessage: Message, blockUsers: List[Long]): List[Message] = {
+      val startRow: Array[Byte] = createMessageScanRow(roomId)
+      val stopRow: Array[Byte] = createMessageRow(roomId, stopMessage.postAt, stopMessage.messageId)
+
+      val scan = new Scan(startRow, stopRow)
+      val filterList = new FilterList(Operator.MUST_PASS_ALL)
+
+      if (blockUsers != null) {
+        blockUsers.foreach { userId => 
+          val userFilter =
+            new SingleColumnValueFilter(Bytes.toBytes("m"), Bytes.toBytes("userId"),
+              CompareOp.NOT_EQUAL, Bytes.toBytes(userId))
+          filterList.addFilter(userFilter)
+        }
+      }
+      scan.setFilter(filterList)
+
+      val messages = scala.collection.mutable.ListBuffer.empty[Message]
+      val scanner: ResultScanner = this.table.getScanner(scan)
+      var count = 0
+
+      scanner.iterator.foreach { result =>
+        val msg = convertToMessage(result)
+        //  log.info(""+msg)
+        messages.append(msg)
+        count += 1
+        if (count >= 50) {
+          return messages.toList
+        }
+      }
+      return messages.toList
+    }
+
+    def createMessageRow(roomId: Long, postAt: Long, messageId: String): Array[Byte] = {
+      //  log.info("createMessageRow:\t"+(Long.MaxValue-postAt))
+      var values = Array[AnyRef](
+        hash.hash(Bytes.toBytes(roomId)).toLong.asInstanceOf[AnyRef],
+        roomId.asInstanceOf[AnyRef],
+        (Long.MaxValue - postAt).asInstanceOf[AnyRef],
+        messageId.asInstanceOf[String]
+      )
+
+      var positionedByteRange = 
+        new SimplePositionedMutableByteRange(messageRowSchema.encodedLength(values))
+      messageRowSchema.encode(positionedByteRange, values)
+      positionedByteRange.getBytes()
+    }
+
+
     def createMessageScanRow(roomId: Long): Array[Byte] = {
       val values = Array[AnyRef] (
         //  hash.hash(Bytes.toBytes(roomId)).asInstanceOf[AnyRef],
@@ -181,7 +254,7 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
       roomId.asInstanceOf[AnyRef]
     )
       val positionedByteRange = 
-        new SimplePositionedByteRange(messageRowSchema.encodedLength(values))
+        new SimplePositionedMutableByteRange(messageRowSchema.encodedLength(values))
       messageRowSchema.encode(positionedByteRange, values)
       positionedByteRange.getBytes()
     }
@@ -192,7 +265,7 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
         Bytes.toLong(result.getValue(Bytes.toBytes("m"), Bytes.toBytes("userId"))),
         "username", //TODO
         Bytes.toString(result.getValue(Bytes.toBytes("m"), Bytes.toBytes("body"))),
-        Long.MaxValue - messageRowSchema.decode(new SimplePositionedByteRange(result.getRow()), 1).asInstanceOf[Long]
+        Long.MaxValue - messageRowSchema.decode(new SimplePositionedMutableByteRange(result.getRow()), 2).asInstanceOf[Long]
       )
     }
 
@@ -220,4 +293,8 @@ case class Message (
   userName: String,
   body: String,
   postAt: Long
-)
+) {
+  override def toString: String = {
+    s"postAt:\t${postAt}, mid: ${messageId}, uid: ${userId}, body: ${body}"
+  }
+}
