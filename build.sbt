@@ -7,7 +7,8 @@ scalaVersion := "2.11.6"
 scalacOptions += "-deprecation"
 
 resolvers ++= Seq(
-  "Sonatype OSS Releases"  at "http://oss.sonatype.org/content/repositories/releases/"
+  "Sonatype OSS Releases"  at "http://oss.sonatype.org/content/repositories/releases/",
+  "cloudera" at "https://repository.cloudera.com/artifactory/cloudera-repos/"
   )
 
 libraryDependencies ++= Seq(
@@ -22,7 +23,13 @@ libraryDependencies ++= Seq(
   "org.scala-lang" % "scala-reflect" % "2.11.5",
   "net.ceedubs" %% "ficus" % "1.1.2",
   "net.databinder.dispatch" %% "dispatch-core" % "0.11.2",
-  "com.github.scopt" %% "scopt" % "3.3.0"
+  "com.github.scopt" %% "scopt" % "3.3.0",
+  "org.apache.hadoop" % "hadoop-common" % "2.6.0-cdh5.4.7",
+  "org.apache.hadoop" % "hadoop-client" % "2.6.0-cdh5.4.7",
+  "org.apache.hadoop" % "hadoop-annotations" % "2.6.0-cdh5.4.7",
+  "org.apache.hbase" % "hbase" % "1.0.0-cdh5.4.7",
+  "org.apache.hbase" % "hbase-client" % "1.0.0-cdh5.4.7",
+  "org.apache.hbase" % "hbase-common" % "1.0.0-cdh5.4.7"
 )
 
 testOptions += Tests.Argument(TestFrameworks.JUnit, "-v")

@@ -1,4 +1,6 @@
 
+*.log
+
 project/target
 target
 tests
