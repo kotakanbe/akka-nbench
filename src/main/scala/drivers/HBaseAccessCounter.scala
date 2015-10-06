@@ -1,4 +1,4 @@
-// HBase徹底入門 Chapter7 メッセージングサービスのScala版 HBase1.x系で実装
+// HBase徹底入門 Chapter7 アクセスカウンタのScala版 HBase1.x系で実装
 // http://amzn.to/1Gn5Azr
 // https://github.com/hbasebook101/hbasebook101/tree/master/ch07/access-counter-service
 package bench.drivers
