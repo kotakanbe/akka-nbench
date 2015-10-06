@@ -35,6 +35,7 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
     operation match {
       case "count" => count _
       case "URLHourly" => hourlyURLAccessCount _
+      case "DomainDaily" => dailyDomainAccessCount _
     }
   }
 
@@ -48,180 +49,248 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
 
   var urlRowSchema = 
     new StructBuilder().
-    add(new RawInteger()). // 
+    add(new RawInteger). // 
     add(new RawStringTerminated(Array[Byte]( 0x00 ))). //
     add(RawString.ASCENDING).
-    toStruct()
+    toStruct
 
-    var domainRowSchema = 
-      new StructBuilder().
-      add(new RawInteger()). // 
-      add(RawString.ASCENDING).
-      toStruct()
+  var domainRowSchema = 
+    new StructBuilder().
+    add(new RawInteger). // 
+    add(RawString.ASCENDING).
+    toStruct
 
-      override def setup(): Boolean = {
-        val conf = HBaseConfiguration.create
-        this.conn = ConnectionFactory.createConnection(conf)
-        val admin = this.conn.getAdmin
+    override def setup(): Boolean = {
+      val conf = HBaseConfiguration.create
+      this.conn = ConnectionFactory.createConnection(conf)
+      val admin = this.conn.getAdmin
 
-        try{
-          admin.createNamespace(NamespaceDescriptor.create(nsName).build());
-        } catch {
-          case e: NamespaceExistException => {
-            log.info(s"namespace: ${nsName} already exists")
-          }
+      try{
+        admin.createNamespace(NamespaceDescriptor.create(nsName).build());
+      } catch {
+        case e: NamespaceExistException => {
+          log.info(s"namespace: ${nsName} already exists")
         }
-
-        val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
-        try{
-          colFamily.foreach{ c => tableDescriptor.addFamily(new HColumnDescriptor(c)) }
-          admin.createTable(tableDescriptor)
-          log.info(s"table: ${tableName} created")
-        } catch {
-          case e: TableExistsException => {
-            log.info(s"table: ${tableName} already exists")
-          }
-        }
-        this.table = this.conn.getTable(TableName.valueOf(tableName))
-        true
       }
 
-      def count(): (Boolean, Long, Long) = {
-        Thread.sleep(100)
-        val start = System.currentTimeMillis
-        try {
-          countup("blog", "yahoo.co.jp", "test1", 1)
+      val tableDescriptor = new HTableDescriptor(TableName.valueOf(tableName))
+      try{
+        colFamily.foreach{ c => tableDescriptor.addFamily(new HColumnDescriptor(c)) }
+        admin.createTable(tableDescriptor)
+        log.info(s"table: ${tableName} created")
+      } catch {
+        case e: TableExistsException => {
+          log.info(s"table: ${tableName} already exists")
+        }
+      }
+      this.table = this.conn.getTable(TableName.valueOf(tableName))
+      true
+    }
 
+    def count(): (Boolean, Long, Long) = {
+      Thread.sleep(100)
+      val start = System.currentTimeMillis
+      try {
+        countup("blog", "yahoo.co.jp", "test1", 1)
+
+        val endAt = System.currentTimeMillis
+        val elapsedMillis= endAt - start
+        (true, endAt, elapsedMillis)
+      } catch {
+        case e: Throwable => {
+          log.error("" + e)
+          log.error("" + e.getMessage())
+          e.printStackTrace
           val endAt = System.currentTimeMillis
           val elapsedMillis= endAt - start
-          (true, endAt, elapsedMillis)
-        } catch {
-          case e: Throwable => {
-            log.error("" + e)
-            log.error("" + e.getMessage())
-            e.printStackTrace
-            val endAt = System.currentTimeMillis
-            val elapsedMillis= endAt - start
-            (false, endAt, elapsedMillis)
-          }
+          (false, endAt, elapsedMillis)
         }
       }
+    }
 
-      def countup(subDomain: String, rootDomain: String, path: String, amount: Long) = {
-        val domain = subDomain + "." + rootDomain;
-        val reversedDomain = reverseDomain(domain);
+    def countup(subDomain: String, rootDomain: String, path: String, amount: Long) = {
+      val domain = subDomain + "." + rootDomain;
+      val reversedDomain = reverseDomain(domain);
 
-        val date = new Date()
-        val hourlyFormat = new SimpleDateFormat("yyyyMMddHH");
-        val dailyFormat = new SimpleDateFormat("yyyyMMddHH");
+      val date = new Date()
+      val hourlyFormat = new SimpleDateFormat("yyyyMMddHH");
+      //TODO original : yyyyMMddHH
+      val dailyFormat = new SimpleDateFormat("yyyyMMdd");
 
-        val increments = new ArrayList[Row]()
+      val increments = new ArrayList[Row]
 
-        // URL
-        val urlRow = createURLRow(domain, path)
-        val urlIncrement = new Increment(urlRow)
-        urlIncrement.addColumn(
-          Bytes.toBytes("h"), 
-          Bytes.toBytes(hourlyFormat.format(date)), 
-          amount
+      // URL
+      val urlRow = createURLRow(domain, path)
+      val urlIncrement = new Increment(urlRow)
+      urlIncrement.addColumn(
+        Bytes.toBytes("h"), 
+        Bytes.toBytes(hourlyFormat.format(date)), 
+        amount
+      )
+      urlIncrement.addColumn(
+        Bytes.toBytes("d"), 
+        Bytes.toBytes(dailyFormat.format(date)), 
+        amount
+      )
+      increments.add(urlIncrement)
+
+
+      // Domain
+      val domainRow = createDomainRow(rootDomain, reversedDomain)
+      val domainIncrement = new Increment(domainRow)
+      domainIncrement.addColumn(
+        Bytes.toBytes("h"), 
+        Bytes.toBytes(hourlyFormat.format(date)), 
+        amount
+      )
+      domainIncrement.addColumn(
+        Bytes.toBytes("d"), 
+        Bytes.toBytes(dailyFormat.format(date)), 
+        amount
+      )
+      increments.add(domainIncrement)
+
+      val results = new Array[AnyRef](2)
+      this.table.batch(increments, results)
+    }
+
+    def hourlyURLAccessCount(): (Boolean, Long, Long) = {
+      Thread.sleep(1000)
+      val start = System.currentTimeMillis
+      try {
+
+        val calendar = Calendar.getInstance
+        calendar.setTime(new Date)
+        val result = getHourlyURLAccessCount(
+          "blog",
+          "yahoo.co.jp",
+          "test1",
+          calendar,
+          calendar
         )
-        urlIncrement.addColumn(
-          Bytes.toBytes("d"), 
-          Bytes.toBytes(dailyFormat.format(date)), 
-          amount
-        )
-        increments.add(urlIncrement)
+        result.foreach{ r => log.info("HourlyURL: "+r) }
 
-
-        // Domain
-        val domainRow = createDomainRow(rootDomain, reversedDomain)
-        val domainIncrement = new Increment(domainRow)
-        domainIncrement.addColumn(
-          Bytes.toBytes("h"), 
-          Bytes.toBytes(hourlyFormat.format(date)), 
-          amount
-        )
-        domainIncrement.addColumn(
-          Bytes.toBytes("d"), 
-          Bytes.toBytes(dailyFormat.format(date)), 
-          amount
-        )
-        increments.add(domainIncrement)
-
-
-        val results = new Array[AnyRef](2)
-        this.table.batch(increments, results)
+        val endAt = System.currentTimeMillis
+        val elapsedMillis= endAt - start
+        (true, endAt, elapsedMillis)
+      } catch {
+        case e: Throwable => {
+          log.error("" + e)
+          log.error("" + e.getMessage)
+          e.printStackTrace
+          val endAt = System.currentTimeMillis
+          val elapsedMillis= endAt - start
+          (false, endAt, elapsedMillis)
+        }
       }
+    }
 
-      def hourlyURLAccessCount(): (Boolean, Long, Long) = {
-        Thread.sleep(1000)
-        val start = System.currentTimeMillis
-        try {
-          
-          val calendar = Calendar.getInstance()
-          calendar.setTime(new Date())
-          val result = getHourlyURLAccessCount(
-            "blog",
-            "yahoo.co.jp",
-            "test1",
-            calendar,
-            calendar
+    def getHourlyURLAccessCount(subDomain: String, rootDomain: String,
+      path: String, startHour: Calendar, endHour: Calendar): ArrayList[URLAccessCount] = {
+        val domain = subDomain + "." + rootDomain
+        val row = createURLRow(domain, path)
+        val get = new Get(row)
+        get.addFamily(Bytes.toBytes("h"))
+
+        val sdf = new SimpleDateFormat("yyyyMMddHH");
+        get.setFilter(
+          new ColumnRangeFilter(
+            Bytes.toBytes(sdf.format(startHour.getTime())), 
+            true, 
+            Bytes.toBytes(sdf.format(endHour.getTime())), 
+            true
+          ))
+
+        val ret = new ArrayList[URLAccessCount]
+        val result = this.table.get(get)
+        if (result.isEmpty) {
+          return ret
+        }
+
+        result.getFamilyMap(Bytes.toBytes("h")).entrySet.foreach { entry =>
+          val yyyyMMddHH = entry.getKey
+          val value = entry.getValue
+          val time = Calendar.getInstance
+          time.setTime(sdf.parse(Bytes.toString(yyyyMMddHH)))
+          val accessCount = URLAccessCount(
+            domain,
+            path,
+            time,
+            Bytes.toLong(value)
           )
-          result.foreach{ r => log.info(""+r) }
-          
+          ret.add(accessCount)
+        }
+        return ret
+    }
 
+    def dailyDomainAccessCount(): (Boolean, Long, Long) = {
+      Thread.sleep(1000)
+      val start = System.currentTimeMillis
+      try {
+
+        val calendar = Calendar.getInstance
+        calendar.setTime(new Date)
+        val result = getDailyDomainAccessCount(
+          "yahoo.co.jp",
+          calendar,
+          calendar
+        )
+        result.foreach{ r => log.info("DailyDomain: "+r) }
+
+        val endAt = System.currentTimeMillis
+        val elapsedMillis= endAt - start
+        (true, endAt, elapsedMillis)
+      } catch {
+        case e: Throwable => {
+          log.error("" + e)
+          log.error("" + e.getMessage)
+          e.printStackTrace
           val endAt = System.currentTimeMillis
           val elapsedMillis= endAt - start
-          (true, endAt, elapsedMillis)
-        } catch {
-          case e: Throwable => {
-            log.error("" + e)
-            log.error("" + e.getMessage())
-            e.printStackTrace
-            val endAt = System.currentTimeMillis
-            val elapsedMillis= endAt - start
-            (false, endAt, elapsedMillis)
-          }
+          (false, endAt, elapsedMillis)
         }
       }
+    }
 
-      def getHourlyURLAccessCount(subDomain: String, rootDomain: String,
-        path: String, startHour: Calendar, endHour: Calendar): ArrayList[URLAccessCount] = {
-          val domain = subDomain + "." + rootDomain
-          val row = createURLRow(domain, path)
-          val get = new Get(row)
-          get.addFamily(Bytes.toBytes("h"))
+    def getDailyDomainAccessCount(rootDomain: String, startDay: Calendar,
+      endDay: Calendar): ArrayList[DomainAccessCount] = {
 
-          val sdf = new SimpleDateFormat("yyyyMMddHH");
-          get.setFilter(
-            new ColumnRangeFilter(
-              Bytes.toBytes(sdf.format(startHour.getTime())), 
-              true, 
-              Bytes.toBytes(sdf.format(endHour.getTime())), 
-              true
-            ))
+        val reversedRootDomain = reverseDomain(rootDomain)
+        val startRow = createDomainRow(rootDomain, reversedRootDomain)
+        val stopRow = incrementBytes(createDomainRow(rootDomain, reversedRootDomain))
+        val scan = new Scan(startRow, stopRow)
+        scan.addFamily(Bytes.toBytes("d"))
 
-          val ret = new ArrayList[URLAccessCount]()
-          val result = this.table.get(get)
-          if (result.isEmpty()) {
-            return ret
-          }
+        val sdf = new SimpleDateFormat("yyyyMMdd")
+        scan.setFilter(new ColumnRangeFilter(
+          Bytes.toBytes(sdf.format(startDay.getTime)), 
+          true,
+          Bytes.toBytes(sdf.format(endDay.getTime)), 
+          true
+        ))
 
-          result.getFamilyMap(Bytes.toBytes("h")).entrySet().foreach { entry =>
-            val yyyyMMddHH = entry.getKey()
-            val value = entry.getValue()
-            val time = Calendar.getInstance()
-            time.setTime(sdf.parse(Bytes.toString(yyyyMMddHH)))
-            val accessCount = URLAccessCount(
-              domain,
-              path,
+        val ret = new ArrayList[DomainAccessCount]
+        val scanner = this.table.getScanner(scan)
+        scanner.foreach{ result =>
+          val domain = reverseDomain(
+            domainRowSchema.decode(
+              new SimplePositionedByteRange(result.getRow()), 1).toString
+            )
+          result.getFamilyMap(Bytes.toBytes("d")).entrySet().foreach { entry =>
+            val qualifier = entry.getKey
+            val value = entry.getValue
+            val time = Calendar.getInstance
+            time.setTime(sdf.parse(Bytes.toString(qualifier)))
+            val accessCount = DomainAccessCount(
+              reverseDomain(domain),
               time,
               Bytes.toLong(value)
             )
             ret.add(accessCount)
           }
-          return ret
-      }
+        }
+        return ret
+    }
 
   def createDomainRow(rootDomain: String, reversedDomain: String): Array[Byte] = {
     val values = Array[AnyRef] (  
@@ -245,17 +314,35 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
   }
 
   def reverseDomain(domain: String): String = {
-    domain.split(".").reverse.mkString(".")
+    domain.split('.').reverse.mkString(".")
+  }
+
+  def incrementBytes(bytes: Array[Byte]): Array[Byte] = {
+    for ((_, i) <- bytes.zipWithIndex) {
+      var increase = false
+      val value = bytes(bytes.length - (i + 1)) & 0x0ff
+      var total: Int = value + 1
+      if (total > 255) {
+        increase = true
+        total = 0
+      }
+      bytes(bytes.length - (i + 1)) = total.asInstanceOf[Byte]
+      if (!increase) {
+        return bytes
+      }
+    }
+    return bytes
   }
 }
 
-case class DomainAccesscount(
+case class DomainAccessCount(
   domain: String,
   time: Calendar,
   count: Long
 ) {
   override def toString: String = {
-    s"domain:\t${domain}, time: ${time}, count: ${count}"
+    val sdf = new SimpleDateFormat("yyyyMMddHH")
+    s"domain: ${domain}, time: ${sdf.format(time.getTime)}, count: ${count}"
   }
 }
 
@@ -266,7 +353,8 @@ case class URLAccessCount(
   count: Long
 ) {
   override def toString: String = {
-    s"domain:\t${domain}, path:${path}, time: ${time}, count: ${count}"
+    val sdf = new SimpleDateFormat("yyyyMMddHH")
+    s"domain: ${domain}, path:${path}, time: ${sdf.format(time.getTime)}, count: ${count}"
   }
 }
 
