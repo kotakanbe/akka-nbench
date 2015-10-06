@@ -279,7 +279,7 @@ class HBaseMessagingServiceDriver(operation: String, stats: ActorRef, config: Co
           total = 0
         }
         bytes(bytes.length - (i + 1)) = total.asInstanceOf[Byte]
-        if (increase) {
+        if (!increase) {
           return bytes
         }
       }
