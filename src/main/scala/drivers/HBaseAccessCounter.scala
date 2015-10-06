@@ -1,6 +1,6 @@
 // HBase徹底入門 Chapter7 メッセージングサービスのScala版 HBase1.x系で実装
 // http://amzn.to/1Gn5Azr
-// https://github.com/hbasebook101/hbasebook101/tree/master/ch07/messaging-service/src/main/java/messaging 
+// https://github.com/hbasebook101/hbasebook101/tree/master/ch07/access-counter-service
 package bench.drivers
 
 import akka.actor._
@@ -18,11 +18,12 @@ import org.apache.hadoop.hbase.filter.FilterList
 import org.apache.hadoop.hbase.filter.FilterList.Operator
 import org.apache.hadoop.hbase.filter.SingleColumnValueFilter
 import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp
+import org.apache.hadoop.hbase.filter.ColumnRangeFilter
 
 import scala.collection.JavaConversions._
 
 import java.text.SimpleDateFormat
-//  import java.util.ArrayList
+import java.util.ArrayList
 import java.util.Calendar
 import java.util.Date
 //  import java.util.List
@@ -33,6 +34,7 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
   override val getOperation = () => {
     operation match {
       case "count" => count _
+      case "URLHourly" => hourlyURLAccessCount _
     }
   }
 
@@ -88,7 +90,7 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
         Thread.sleep(100)
         val start = System.currentTimeMillis
         try {
-          countup("blog", "yahoo.co.jp", s"test1", 1)
+          countup("blog", "yahoo.co.jp", "test1", 1)
 
           val endAt = System.currentTimeMillis
           val elapsedMillis= endAt - start
@@ -113,21 +115,37 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
         val hourlyFormat = new SimpleDateFormat("yyyyMMddHH");
         val dailyFormat = new SimpleDateFormat("yyyyMMddHH");
 
-        val increments = new java.util.ArrayList[Row]()
-        
+        val increments = new ArrayList[Row]()
+
         // URL
         val urlRow = createURLRow(domain, path)
         val urlIncrement = new Increment(urlRow)
-        urlIncrement.addColumn(Bytes.toBytes("h"), Bytes.toBytes(hourlyFormat.format(date)), amount)
-        urlIncrement.addColumn(Bytes.toBytes("d"), Bytes.toBytes(dailyFormat.format(date)), amount)
+        urlIncrement.addColumn(
+          Bytes.toBytes("h"), 
+          Bytes.toBytes(hourlyFormat.format(date)), 
+          amount
+        )
+        urlIncrement.addColumn(
+          Bytes.toBytes("d"), 
+          Bytes.toBytes(dailyFormat.format(date)), 
+          amount
+        )
         increments.add(urlIncrement)
-        
+
 
         // Domain
         val domainRow = createDomainRow(rootDomain, reversedDomain)
         val domainIncrement = new Increment(domainRow)
-        domainIncrement.addColumn(Bytes.toBytes("h"), Bytes.toBytes(hourlyFormat.format(date)), amount)
-        domainIncrement.addColumn(Bytes.toBytes("d"), Bytes.toBytes(dailyFormat.format(date)), amount)
+        domainIncrement.addColumn(
+          Bytes.toBytes("h"), 
+          Bytes.toBytes(hourlyFormat.format(date)), 
+          amount
+        )
+        domainIncrement.addColumn(
+          Bytes.toBytes("d"), 
+          Bytes.toBytes(dailyFormat.format(date)), 
+          amount
+        )
         increments.add(domainIncrement)
 
 
@@ -135,6 +153,75 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
         this.table.batch(increments, results)
       }
 
+      def hourlyURLAccessCount(): (Boolean, Long, Long) = {
+        Thread.sleep(1000)
+        val start = System.currentTimeMillis
+        try {
+          
+          val calendar = Calendar.getInstance()
+          calendar.setTime(new Date())
+          val result = getHourlyURLAccessCount(
+            "blog",
+            "yahoo.co.jp",
+            "test1",
+            calendar,
+            calendar
+          )
+          result.foreach{ r => log.info(""+r) }
+          
+
+          val endAt = System.currentTimeMillis
+          val elapsedMillis= endAt - start
+          (true, endAt, elapsedMillis)
+        } catch {
+          case e: Throwable => {
+            log.error("" + e)
+            log.error("" + e.getMessage())
+            e.printStackTrace
+            val endAt = System.currentTimeMillis
+            val elapsedMillis= endAt - start
+            (false, endAt, elapsedMillis)
+          }
+        }
+      }
+
+      def getHourlyURLAccessCount(subDomain: String, rootDomain: String,
+        path: String, startHour: Calendar, endHour: Calendar): ArrayList[URLAccessCount] = {
+          val domain = subDomain + "." + rootDomain
+          val row = createURLRow(domain, path)
+          val get = new Get(row)
+          get.addFamily(Bytes.toBytes("h"))
+
+          val sdf = new SimpleDateFormat("yyyyMMddHH");
+          get.setFilter(
+            new ColumnRangeFilter(
+              Bytes.toBytes(sdf.format(startHour.getTime())), 
+              true, 
+              Bytes.toBytes(sdf.format(endHour.getTime())), 
+              true
+            ))
+
+          val ret = new ArrayList[URLAccessCount]()
+          val result = this.table.get(get)
+          if (result.isEmpty()) {
+            return ret
+          }
+
+          result.getFamilyMap(Bytes.toBytes("h")).entrySet().foreach { entry =>
+            val yyyyMMddHH = entry.getKey()
+            val value = entry.getValue()
+            val time = Calendar.getInstance()
+            time.setTime(sdf.parse(Bytes.toString(yyyyMMddHH)))
+            val accessCount = URLAccessCount(
+              domain,
+              path,
+              time,
+              Bytes.toLong(value)
+            )
+            ret.add(accessCount)
+          }
+          return ret
+      }
 
   def createDomainRow(rootDomain: String, reversedDomain: String): Array[Byte] = {
     val values = Array[AnyRef] (  
@@ -145,7 +232,7 @@ class HBaseAccessCounter(operation: String, stats: ActorRef, config: Config) ext
     domainRowSchema.encode(positionedByteRange, values)
     positionedByteRange.getBytes()
   }
-     
+
   def createURLRow(domain: String, path: String): Array[Byte] = {
     val values = Array[AnyRef] ( 
       hash.hash(Bytes.toBytes(domain)).asInstanceOf[AnyRef], 
