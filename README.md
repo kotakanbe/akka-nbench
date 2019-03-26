@@ -142,7 +142,7 @@ $ open tests/current/summary.png
 Multi-Clients benchmark
 -------------
 
-Benchmaking on Multi Clients and Collect raw.csv.
+Benchmarking on Multi Clients and Collect raw.csv.
 Then cat and sort...
 
 ```shell
